@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+# Mac binaries / archives and derived disassembly are not redistributed
+*.sit
+*.sea
+*.hqx
+*.bin
+*.rsrc
+res/
+dis/
