@@ -11,6 +11,7 @@ from .qdstretch import (
     nearest_neighbor,
     stretch_bits,
     vertical_map,
+    weighted_shrink_row,
 )
 from .scalesel import ScaleTooBig, scale_selection_rect
 
@@ -21,4 +22,5 @@ __all__ = [
     'scale_selection_rect',
     'stretch_bits',
     'vertical_map',
+    'weighted_shrink_row',
 ]

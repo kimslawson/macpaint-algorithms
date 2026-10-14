@@ -155,9 +155,10 @@ never clears anything. The fast paths are OR-based too. `HALF` does
 `x | (x >> 1)` and masks with `$55555555`. `THREE4` and `QRTR` add `$C0000000`
 or `$F0000000` so that the carry is the OR of the top 2 or 4 bits.
 
-(In the same file there is a commented-out alternative, inside `IF 0`, that
-weights black bits and only sets the destination once they pass a threshold.
-The plain OR version is the one that is built.)
+The same file also contains a different `SHRINK` that is switched off with
+`IF 0`. It weighs black pixels instead of ORing them. See
+[§5a](#5a-the-road-not-taken-the-disabled-ink-weighting-shrink) for what it
+would have done.
 
 Enlarging (`STRCH`, `DOUBLE`, `TRIPLE`, …) replicates source bits.
 
@@ -196,20 +197,133 @@ selection when the vertical ratio isn't a whole number. The tests in
 OR is also why MacPaint's reductions look heavy. A 50% gray (checkerboard) fill
 shrinks to solid black, and closely spaced lines merge into blocks. Point
 sampling keeps the gray but drops hairlines. See `docs/images/`: each
-`shrink-NN.png` has QuickDraw's OR shrink on the left and nearest-neighbour on
-the right, zoomed 3×.
+`shrink-NN.png` has three panels, zoomed 3×:
 
-| Scale | QuickDraw black px | Nearest-neighbour black px |
-|------:|-------------------:|---------------------------:|
-| 75% | 1481 | 1192 |
-| 50% | 918 | 495 |
-| 37% | 634 | 169 |
-| 25% | 430 | 114 |
+* **left:** QuickDraw as shipped (OR shrink)
+* **middle:** QuickDraw with the disabled ink-weighting loop from §5a
+* **right:** nearest-neighbour point sampling
+
+| Scale | OR (shipped) black px | Ink-weighted (disabled) | Nearest-neighbour |
+|------:|----------------------:|------------------------:|------------------:|
+| 75% | 1481 | 1264 | 1192 |
+| 50% | 918 | 792 | 495 |
+| 37% | 634 | 468 | 169 |
+| 25% | 430 | 313 | 114 |
+
+The source card has 1843 black pixels.
+
+## 5a. The road not taken: the disabled ink-weighting `SHRINK`
+
+Just before the `SHRINK` that is built, `Stretch.a` contains a second version,
+wrapped in `IF 0 THEN … ELSE` so it is never assembled:
+
+```asm
+        IF 0 THEN
+SHRINK  MOVEM.L D7/D6,-(SP)
+        MOVEQ   #0,D1           ;INIT DST WORD
+        MOVE    #$1F,D2         ;init bit counter
+        ...
+        MOVE.L  D4,D3           ;COPY RATIO
+        LSR.L   #1,D3           ;INIT ERR TO RATIO/2
+        MOVE.L  D3,D7           ;init bit accum to ratio/2
+        MOVEQ   #1,D6           ;use D6 to test for overflow
+        SWAP    D6              ;into high word            (D6 = 1.0)
+NXTSRC1 ADD.L   D0,D0           ;GET SRC BIT
+        BCC.S   WHITE1          ;BRANCH IF WHITE
+        ...
+BLACK1  ADD.L   D4,D7           ;add weight of a set bit
+WHITE1  CMP.L   D6,D7           ;overflow into high word yet?
+        BLE.S   FSCAN           ;=>no, continue scanning
+        BSET    D2,D1           ;else set the bit
+        BNE.S   FSCAN           ;=>if already set, save for next time
+        SUB.L   D6,D7           ;subtract one for bit we set
+FSCAN   ADD     D4,D3           ;TIME FOR NEXT DSTBIT ?
+        ...
+        ELSE
+SHRINK  CLR     D1              ; <- the OR loop shown above
+```
+
+### What it computes
+
+The position DDA (`D3`) is the same as in the shipping loop. The difference is
+a second accumulator, `D7`, which tracks **ink**:
+
+```
+ink = ratio/2                          # ratio = dst/src, < 1.0
+for each source bit:
+    if black: ink += ratio             # a black pixel is `ratio` dst pixels wide
+    if ink > 1.0 and current dst bit is clear:
+        set it; ink -= 1.0
+    # if the bit is already set, the ink is "saved for next time"
+    advance to the next dst bit when the position DDA carries
+```
+
+This is a one-dimensional, density-preserving threshold, close to 1-D error
+diffusion of black coverage. Three details change the results:
+
+1. **The ink check runs after every source bit, white ones too.** `WHITE1` is
+   the check, and `BLACK1` falls through into it.
+2. **`ink` is never reset between destination pixels**, only at the start of
+   each row. Leftover ink carries to the right until something uses it.
+3. **When the target bit is already set, the excess is kept**, so it spills
+   into later bits even if their sources are white.
+
+### What that does to a picture
+
+The model is `weighted_shrink_row` in `qdscale/qdstretch.py`. Use
+`stretch_bits(..., horizontal='weighted')` for a whole bitmap.
+`tests/test_qdscale.py::WeightedShrinkTests` pins down each behaviour below.
+
+* **Gray stays gray in a single row.** `1010101010101010` → 8 px comes out as
+  `01010101`. Each row's black count stays within one pixel of
+  `black pixels × ratio` (measured: −0.99 to +0.48 over 20,000 random rows).
+  This is the property the loop was written for.
+* **Lone pixels are rationed, not kept.** A single black pixel adds `ratio` of
+  ink, and `ratio` is always under 1. Only the first one in a row gets the
+  `ratio/2` head start, so a lone pixel in an otherwise white row needs a ratio
+  above ⅔ to show at all. In general, n separate 1-px vertical lines come out
+  as about n × ratio lines. In the test card's row of 9 verticals (8 hairlines
+  plus the frame edge), 7 survive at 75%, 4 at 50% and 2 at 25%.
+* **Ink drifts right.** At 50%, two lone pixels at x=4 and x=9 produce one dot
+  at the *second* pixel's position, because the first one's 0.75 ink waits
+  until the second pushes it over 1.0. The card's left frame edge is the first
+  ink in every row, so it disappears entirely at 50% and below. Its ink lands
+  on whatever black comes next in the row.
+* **Action at a distance.** In the card, the dot inside the outlined box is
+  under 1.0 on its own, so its ink moves right. It tops up the box's right
+  edge, which then leaves the frame's right edge 16 px further on short. The
+  dot punches a hole in a line it never touches (row 34 of `shrink-50.png`,
+  middle panel).
+* **It only covers half the problem.** The routine replaces only the
+  *horizontal* shrink. The vertical pass still ORs scanlines (`ONEDEEP`), so a
+  50% checkerboard still goes solid black at 50%: two rows `0101…` and `1010…`
+  OR to `1111…` before the weighted loop sees them. The result is
+  anisotropic. Horizontal hairlines are kept by the vertical OR, while vertical
+  hairlines are thinned out by the horizontal ink budget.
+
+For a paint program, where a 1-pixel line is a deliberate mark, that's a bad
+trade. The shipping OR loop is predictable and local: an output pixel depends
+only on its own source box, and nothing the user drew can vanish (except the
+vertical edge case above).
+
+### Where it came from
+
+Nothing dates the block. It has no change-log entry and no initials. It is
+written for 32-bit registers: `MOVE.L (A0)+`, `ADDX.L`, a 32-bit destination
+word with bit counter `#$1F`, and `ADD.L D4,D7` with 1.0 = `$10000` in `D6`.
+The shipping loop is the 16-bit word loop (`MOVE (A0)+`, `ROR #1,D2`), in the
+same style as the rest of the original 68000 stretch code. So the most likely
+story is that someone during Color QuickDraw development tried a
+coverage-preserving shrink for 1-bit images and switched it off, leaving the
+original OR behaviour in place. That reading is an inference from the code,
+not something the source states. Either way, it was never assembled into the
+ROM this file builds, and MacPaint 2.0 never used it.
 
 ## 6. Reimplementation
 
 `qdscale/qdstretch.py` models the two DDAs and the OR merges exactly as
 described above. `stretch_bits(src, w, h)` gives QuickDraw's result.
+`stretch_bits(..., horizontal='weighted')` swaps in the disabled loop from §5a.
 `nearest_neighbor` is the baseline. `qdscale/scalesel.py` is the Scale
 Selection rectangle maths.
 

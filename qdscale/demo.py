@@ -1,10 +1,13 @@
-"""Render QuickDraw OR-shrink vs. point sampling on a MacPaint-style test card.
+"""Render three ways of shrinking a MacPaint-style test card.
 
     python3 -m qdscale.demo docs/images
 
 Writes test-card.png and one comparison PNG per scale factor. Each comparison
-shows QuickDraw (left) and nearest-neighbour (right), enlarged 3x so single
-pixels are visible.
+has three panels, enlarged 3x so single pixels are visible:
+
+  left    QuickDraw as shipped (OR shrink)
+  middle  QuickDraw with the disabled IF 0 ink-weighting SHRINK loop
+  right   nearest-neighbour point sampling
 """
 import os
 import struct
@@ -80,8 +83,14 @@ def zoom(bm, k=ZOOM):
     return [[p for p in row for _ in range(k)] for row in bm for _ in range(k)]
 
 
-def side_by_side(a, b, gap=GAP):
-    return [ra + [0] * gap + rb for ra, rb in zip(a, b)]
+def side_by_side(*panels, gap=GAP):
+    out = []
+    for rows in zip(*panels):
+        line = []
+        for k, r in enumerate(rows):
+            line += ([0] * gap if k else []) + r
+        out.append(line)
+    return out
 
 
 def main():
@@ -93,11 +102,12 @@ def main():
     for pct in (75, 50, 37, 25):
         dw, dh = w * pct // 100, h * pct // 100
         qd = stretch_bits(card, dw, dh)
+        wt = stretch_bits(card, dw, dh, horizontal='weighted')
         nn = nearest_neighbor(card, dw, dh)
         name = f'shrink-{pct}.png'
-        write_png(os.path.join(outdir, name), side_by_side(zoom(qd), zoom(nn)))
-        print(f'{name}: {dw}x{dh}  black pixels: QuickDraw {sum(map(sum, qd))}, '
-              f'nearest-neighbour {sum(map(sum, nn))}')
+        write_png(os.path.join(outdir, name), side_by_side(zoom(qd), zoom(wt), zoom(nn)))
+        print(f'{name}: {dw}x{dh}  black pixels: OR {sum(map(sum, qd))}, '
+              f'weighted {sum(map(sum, wt))}, nearest-neighbour {sum(map(sum, nn))}')
 
 
 if __name__ == '__main__':

@@ -3,7 +3,8 @@ import random
 import unittest
 
 from qdscale import (ScaleTooBig, horizontal_map, nearest_neighbor,
-                     scale_selection_rect, stretch_bits, vertical_map)
+                     scale_selection_rect, stretch_bits, vertical_map,
+                     weighted_shrink_row)
 
 
 def blank(w, h):
@@ -97,6 +98,62 @@ class StretchTests(unittest.TestCase):
             want = [[int(any(bm[y][x] for y in vm[j] for x in hm[i]))
                      for i in range(dw)] for j in range(dh)]
             self.assertEqual(stretch_bits(bm, dw, dh), want)
+
+
+def bits(s):
+    return [int(c) for c in s]
+
+
+class WeightedShrinkTests(unittest.TestCase):
+    """The ink-accumulating SHRINK loop that Stretch.a leaves disabled."""
+
+    def test_isolated_pixel_needs_ratio_above_two_thirds(self):
+        # ink = ratio/2 + ratio must exceed 1.0
+        for dst in range(1, 40):
+            row = [0] * 40
+            row[20] = 1
+            self.assertEqual(sum(weighted_shrink_row(row, dst)),
+                             int(dst / 40 > 2 / 3), dst)
+
+    def test_ink_drifts_to_the_next_black_pixel(self):
+        # 0.75 ink from the first pixel tops up the second: one dot, at the
+        # second pixel's position.
+        self.assertEqual(weighted_shrink_row(bits('000010000100'), 6),
+                         bits('000010'))
+
+    def test_one_dot_can_erase_a_distant_pixel(self):
+        # box edge, then frame edge 16 px further on (as in the demo card, row 34)
+        edges = bits('0' * 23 + '1' + '0' * 15 + '1')
+        with_dot = list(edges)
+        with_dot[11] = 1
+        self.assertEqual(sum(weighted_shrink_row(edges, 20)), 1)
+        out = weighted_shrink_row(with_dot, 20)
+        self.assertEqual(out[19], 0)          # frame pixel gone
+        self.assertEqual(sum(out), 1)
+
+    def test_preserves_density_not_lines(self):
+        self.assertEqual(weighted_shrink_row(bits('10' * 8), 8), bits('01' * 4))
+        self.assertEqual(weighted_shrink_row(bits('1' * 8), 4), bits('1111'))
+        self.assertEqual(weighted_shrink_row(bits('111000000000'), 6),
+                         bits('100000'))
+
+    def test_row_black_count_tracks_ink(self):
+        rng = random.Random(4)
+        for _ in range(2000):
+            sw = rng.randint(2, 60)
+            dw = rng.randint(1, sw - 1)
+            p = rng.random()
+            row = [int(rng.random() < p) for _ in range(sw)]
+            diff = sum(weighted_shrink_row(row, dw)) - sum(row) * dw / sw
+            self.assertTrue(-1 < diff <= 0.5, (row, dw, diff))
+
+    def test_only_used_for_horizontal_shrinks(self):
+        rng = random.Random(6)
+        bm = [[rng.randint(0, 1) for _ in range(9)] for _ in range(7)]
+        self.assertEqual(stretch_bits(bm, 20, 3, horizontal='weighted'),
+                         stretch_bits(bm, 20, 3))
+        with self.assertRaises(ValueError):
+            weighted_shrink_row([1, 0], 2)
 
 
 class ScaleSelectionTests(unittest.TestCase):

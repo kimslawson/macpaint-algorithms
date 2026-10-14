@@ -108,10 +108,54 @@ def vertical_map(src_h, dst_h):
     return rows
 
 
-def stretch_bits(src, dst_w, dst_h):
-    """Scale a 1-bit bitmap the way QuickDraw's CopyBits does (srcCopy)."""
+def weighted_shrink_row(row, dst_w):
+    """The disabled SHRINK loop (inside IF 0 in Stretch.a): ink accumulation.
+
+    Every black source bit adds `ratio` (its width in destination pixels) to
+    an ink accumulator that starts at ratio/2. After every source bit, black
+    or white, if the ink exceeds 1.0 the current destination bit is set and
+    1.0 is subtracted. If that bit is already set, the ink is kept "for next
+    time" and spills into later bits. The accumulator is reset only at the
+    start of each row, never between destination pixels.
+
+    When the source runs out, the real loop keeps reading the scanline buffer
+    until the destination is full. That is modelled as white bits, which
+    still let leftover ink land.
+    """
+    src_w = len(row)
+    if dst_w >= src_w:
+        raise ValueError('the weighted loop is only used for shrinking')
+    ratio = _fix_ratio(dst_w, src_w) & 0xFFFF
+    err = ratio >> 1                  # position DDA, as in the shipping loop
+    ink = ratio >> 1                  # "init bit accum to ratio/2"
+    out = [0] * dst_w
+    j = i = 0
+    while j < dst_w:
+        if i < src_w and row[i]:
+            ink += ratio              # BLACK1: add weight of a set bit
+        if ink > ONE and not out[j]:  # WHITE1: overflow into high word yet?
+            out[j] = 1
+            ink -= ONE                # (bit already set: save for next time)
+        i += 1
+        err += ratio
+        if err >= ONE:                # FSCAN: time for next dst bit?
+            err -= ONE
+            j += 1
+    return out
+
+
+def stretch_bits(src, dst_w, dst_h, horizontal='or'):
+    """Scale a 1-bit bitmap the way QuickDraw's CopyBits does (srcCopy).
+
+    horizontal='weighted' swaps in the disabled ink-accumulating SHRINK loop
+    for horizontal shrinks, which is what enabling the IF 0 block would do.
+    The vertical pass still ORs scanlines either way.
+    """
+    if horizontal not in ('or', 'weighted'):
+        raise ValueError(horizontal)
     src_h = len(src)
     src_w = len(src[0]) if src_h else 0
+    weighted = horizontal == 'weighted' and dst_w < src_w
     cols = horizontal_map(src_w, dst_w)
     out = []
     for group in vertical_map(src_h, dst_h):
@@ -120,7 +164,10 @@ def stretch_bits(src, dst_w, dst_h):
             row = src[r]
             for x in range(src_w):
                 merged[x] |= row[x]
-        out.append([1 if any(merged[i] for i in c) else 0 for c in cols])
+        if weighted:
+            out.append(weighted_shrink_row(merged, dst_w))
+        else:
+            out.append([1 if any(merged[i] for i in c) else 0 for c in cols])
     return out
 
 

@@ -12,7 +12,12 @@ are resampled by QuickDraw's `CopyBits`, whose 1-bit shrink loops OR together
 every source pixel that lands on a destination pixel, so black wins. Each
 rescale also starts again from the selection's original pixels.
 
-| Original | 37% (left: QuickDraw OR-shrink, right: nearest-neighbour) |
+The write-up also decodes an ink-weighting shrink loop that sits in QuickDraw's
+`Stretch.a` but is switched off with `IF 0`. It preserves gray density, but it
+rations, drifts and even erases thin lines, which may be why the OR loop
+stayed.
+
+| Original | 37%: shipped OR shrink · disabled ink-weighting loop · nearest-neighbour |
 |---|---|
 | ![](docs/images/test-card.png) | ![](docs/images/shrink-37.png) |
 
