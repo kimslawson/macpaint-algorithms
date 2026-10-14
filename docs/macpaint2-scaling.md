@@ -376,7 +376,16 @@ python3 -m qdscale.demo docs/images
   the same for any 1-bit source. However, the `VERROR` initialisation shown
   dates from the 1990 changes. On older ROMs the exact rows picked at
   non-integral ratios may differ by one. Running MacPaint 2.0 in an emulator
-  with a Plus or SE ROM would settle that.
+  with a Plus or SE ROM would settle that. A test that separates the two:
+  draw two full-width 1-px horizontal lines 9 rows apart (art 10 rows tall).
+  Command-drag a marquee around them so it shrinks to exactly the art. Then use
+  Scale Selection… at 25%. The model predicts a 4-row result with only the
+  *top* line left: rows are merged as {0,1}, {2,3}, {4,5,6}, {7,8}, and row 9
+  is never read. Other cases where the model predicts a drop: 7 rows at 40%
+  and 20 rows at 25%. Scale Selection at 50% or more never hits this case,
+  because it rounds the inset down, so the output is always at least half the
+  height. For example, 21 rows at 50% gives 11 rows, and the model reads every
+  row (confirmed in an emulator: the bottom line survives).
 * `FixRatio` rounding is modelled as truncation. If a ROM rounds instead, edge
   columns at some ratios could shift by one pixel. The OR behaviour is the
   same either way.
