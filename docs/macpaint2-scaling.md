@@ -385,7 +385,7 @@ python3 -m qdscale.demo docs/images
   and 20 rows at 25%. Scale Selection at 50% or more never hits this case,
   because it rounds the inset down, so the output is always at least half the
   height. For example, 21 rows at 50% gives 11 rows, and the model reads every
-  row (confirmed in an emulator: the bottom line survives).
+  row. An emulator test at 50% kept the bottom line, as the model predicts.
 * `FixRatio` rounding is modelled as truncation. If a ROM rounds instead, edge
   columns at some ratios could shift by one pixel. The OR behaviour is the
   same either way.
