@@ -42,11 +42,16 @@ procedures have names. The 26 `CODE` segments are named too:
 | 12 | SELECT | `DRAGIMAG` (move / stretch-drag a selection) |
 | 18 | TOOLS | **`SCALESEL`** (Goodies ▸ Scale Selection…) |
 
-The menu resources include `Goodies ▸ Scale Selection...` (MENU 4). They also
-include an alternate Edit menu (MENU 9) with *Free Rotate / Distort /
-Perspective / Stretch*. DLOG/DITL 2008 is the "Scale selection to: [  ] %"
-dialog. ALRT/DITL 2120 is "That's too big to fit in a Paint document. Choose a
-smaller scaling factor."
+The menu resources include `Goodies ▸ Scale Selection...` (MENU 4).
+DLOG/DITL 2008 is the "Scale selection to: [  ] %" dialog. ALRT/DITL 2120 is
+"That's too big to fit in a Paint document. Choose a smaller scaling factor."
+
+There is also a MENU 9 whose internal menu ID is 3, so it would replace Edit.
+It adds *Free Rotate / Distort / Perspective / Stretch* after Rotate. **It is
+never loaded.** `SETUPMEN` calls `_GetRMenu` only for IDs 1–8, and nothing calls
+`_GetResource('MENU', …)`, so those items never appear. One trace of them is
+left in `CHECKMEN`: for lasso selections it disables Edit items 10–17, a range
+that only fits the longer MENU 9 layout (Trace Edges … Stretch).
 
 ## 2. `SCALESEL` (CODE 18, `$2EE`): only rectangle arithmetic
 
@@ -90,6 +95,35 @@ When a selection is dragged in stretch mode, `DRAGIMAG` builds the "from" and
 the selection rectangle through them (`_MapRect`), clips to the page, and calls
 the same `SELTOALT` with the result. Shift constrains it with `CONSTRAI`. This
 runs on every mouse-move until `_StillDown` goes false.
+
+### How to trigger it
+
+Neither resize path has a visible handle, so here is exactly what the code
+checks:
+
+* **Stretch mode is Command held at mouse-down.** `PROCESST` samples the
+  modifiers with `KEYISDOW` (`_GetKeys` + `_BitTst`) when the button goes down.
+  `_BitTst` numbers bits from the high bit of each byte, so bit *n* is key code
+  `(n & ~7) | (7 − (n & 7))`. The four bits it reads, `$3F $30 $3D $3E`, are
+  Shift, **Command**, Option and Caps Lock. Command goes into `-$1A45(A5)`,
+  which `DRAGIMAG` uses as its stretch flag.
+* **Command + Option is not stretch.** If both are down, `PROCESST` clears the
+  Command and Option flags and sets a separate Command-Option flag (`-$344`),
+  which `DRAGIMAG` uses for something else.
+* **Grab the outer third.** `DRAGIMAG` splits the selection into thirds on
+  each axis. A click in a left/right third anchors the opposite side, and a
+  top/bottom third does the same vertically. A click in the middle third of an
+  axis leaves that axis alone. A click in the centre cell (middle on both
+  axes) cancels stretching, and the selection just moves. So Command-drag from
+  near a corner stretches both ways, and from near the middle of an edge it
+  stretches one way.
+* **Rectangular selections only.** A lasso selection sets the "has mask" flag
+  `-$377(A5)` (after `GETRGN`/`ALLOCMAS`), and `DRAGIMAG` cancels stretching
+  when it is set. Command while *drawing* a marquee shrinks the marquee to fit
+  the artwork (`seg1_005e`), but the result is still rectangular and can be
+  stretched.
+* **Scale Selection… follows the same rule.** `CHECKMEN` enables Goodies item
+  14 only when `selection exists AND NOT lasso` (`-$345` and not `-$377`).
 
 ## 4. `SELTOALT` (CODE 11, `$DB0`): the only pixel operation is `_CopyBits`
 
