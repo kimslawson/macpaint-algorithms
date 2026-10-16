@@ -224,7 +224,8 @@ scanlines. For example, 5 → 2 rows merges rows {0,1} and {2,3} and never reads
 row 4. Horizontally, every source column is used. So the "black never
 disappears" guarantee holds everywhere except a sliver at the bottom of the
 selection when the vertical ratio isn't a whole number. The tests in
-`tests/test_qdscale.py` cover this explicitly.
+`tests/test_qdscale.py` cover this explicitly. MacPaint 2.0 shows this on
+emulated Mac SE and SE/30 machines alike; see [Emulator check](#emulator-check).
 
 ### The downside
 
@@ -374,35 +375,52 @@ python3 -m qdscale.demo docs/images
   2.0 usually ran on. The general `SHRINK` loop and the 1-bit row merge are
   word-at-a-time 68000 code from the original design, and the OR behaviour is
   the same for any 1-bit source. However, the `VERROR` initialisation shown
-  dates from the 1990 changes, so on older ROMs the exact rows picked at
-  non-integral ratios may differ.
+  dates from the 1990 changes. The emulator checks below show the older SE ROM
+  picks the same rows in the non-integral case tested. Whole-number ratios
+  are still untested.
 
 ### Emulator check
 
-Tested in [Infinite Mac](https://infinitemac.org/) running System 6.0.5
-(Finder 6.1.5, 8 MB) and MacPaint 2.0 (December 1987). Infinite Mac runs
-System 6.0.5 on a **Mac SE/30**, which uses the **Mac IIx ROM**, so this is
-Color QuickDraw. System 6.0.5 also bundles 32-bit QuickDraw.
+Tested in [Infinite Mac](https://infinitemac.org/) with MacPaint 2.0
+(December 1987) on two machines:
 
-The test: draw two full-width 1-px horizontal lines 9 rows apart (art 10 rows
-tall). Command-drag a marquee around them so it shrinks to exactly the art,
-then use Scale Selection… at 25%.
+| Machine (as Infinite Mac sets it up) | ROM / QuickDraw | System |
+|---|---|---|
+| Mac SE/30, 8 MB | Mac IIx ROM: Color QuickDraw (plus the 32-bit QuickDraw that ships with 6.0.5) | 6.0.5 |
+| Mac SE, 4 MB (Mini vMac) | Mac SE ROM: the original black-and-white QuickDraw | 6.0.2 |
+
+**Test 1, non-integral shrink:** draw two full-width 1-px horizontal lines 9
+rows apart (art 10 rows tall). Command-drag a marquee around them so it
+shrinks to exactly the art, then use Scale Selection… at 25%.
 
 * **Model:** a 4-row result with only the *top* line. Rows are merged as
   {0,1}, {2,3}, {4,5,6}, {7,8}, and row 9 is never read.
-* **Emulator:** the bottom line is gone. ✔ (Pinned as
+* **Emulator, both machines:** the bottom line is gone. ✔ (Pinned as
   `test_emulator_confirmed_bottom_row_drop`.)
-* At 50% the bottom line survives in both the emulator and the model. Scale
-  Selection rounds the inset down, so the output is always at least half the
-  height (21 rows → 11), and at those ratios the model reads every row.
 
-Other cases where the model predicts a dropped bottom row are 7 rows at 40% and
-20 rows at 25%.
+The bottom-row drop on non-integral shrinks is therefore not a Color QuickDraw
+change. The original 1-bit QuickDraw does it too, so MacPaint 2.0 users on a
+Plus or SE saw it.
 
-**Still open:** the original black-and-white QuickDraw. Infinite Mac runs
-System 6.0.2 on a **Mac SE** (SE ROM, Mini vMac), with the same Infinite HD
-disk. Repeating the 25% test there would show whether the pre-1990 ROM drops
-the row too.
+At 50% the bottom line survives, in the emulator and in the model. Scale
+Selection rounds the inset down, so the output is always at least half the
+height (21 rows → 11), and at those ratios every row is read.
+
+**Test 2, whole-number shrink (still open).** Change log entry `<16>`
+(3/6/90) changed the starting error term for *exact* shrinks only. The model
+assumes the fix. Running the same stepping without it predicts a different
+result for whole-number ratios other than 2:1:
+
+| Art height, Scale Selection | Result | Model (with fix) | Same stepping without the fix |
+|---|---|---|---|
+| 12 rows, 33% | 4 rows (3:1) | {0,1,2} … {9,10,11}: bottom line kept | {0,1} {2,3,4} {5,6,7} {8,9,10}: row 11 never read, bottom line lost |
+| 16 rows, 25% | 4 rows (4:1) | every row read | row 15 never read |
+| 8 rows, 50% | 4 rows (2:1) | every row read | every row read (no difference) |
+
+Running "12 rows at 33%" with lines on rows 0 and 11, on both machines, would
+show which ROMs have the exact-shrink correction. The "without the fix" column
+is an inference: it is the same DDA with the `<16>` branch removed, not code
+quoted from an older ROM.
 
 * `FixRatio` rounding is modelled as truncation. If a ROM rounds instead, edge
   columns at some ratios could shift by one pixel. The OR behaviour is the

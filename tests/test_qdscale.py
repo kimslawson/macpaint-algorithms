@@ -181,9 +181,10 @@ class ScaleSelectionTests(unittest.TestCase):
                          (569, 501, 719, 575))
 
     def test_emulator_confirmed_bottom_row_drop(self):
-        # MacPaint 2.0 on an emulated SE/30 (Mac IIx ROM, System 6.0.5): two
-        # full-width lines on rows 0 and 9, marquee shrunk to fit, Scale
-        # Selection 25%. Only the top line survived.
+        # MacPaint 2.0 in Infinite Mac on an SE/30 (Mac IIx ROM, System
+        # 6.0.5) and on an SE (SE ROM, System 6.0.2): two full-width lines
+        # on rows 0 and 9, marquee shrunk to fit, Scale Selection 25%. Only
+        # the top line survived on both.
         bm = blank(40, 10)
         bm[0] = [1] * 40
         bm[9] = [1] * 40
