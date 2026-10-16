@@ -370,22 +370,40 @@ python3 -m qdscale.demo docs/images
 
 * The MacPaint 2.0 findings above come from disassembling this exact binary.
 * The QuickDraw quotes come from the later Color QuickDraw ROM `Stretch.a`
-  (copyright 1981–1993), not from the 1987 Mac Plus/SE ROM that MacPaint 2.0
-  usually ran on. The general `SHRINK` loop and the 1-bit row merge are
+  (copyright 1981–1993), not from the 1986–87 Mac Plus/SE ROMs that MacPaint
+  2.0 usually ran on. The general `SHRINK` loop and the 1-bit row merge are
   word-at-a-time 68000 code from the original design, and the OR behaviour is
   the same for any 1-bit source. However, the `VERROR` initialisation shown
-  dates from the 1990 changes. On older ROMs the exact rows picked at
-  non-integral ratios may differ by one. Running MacPaint 2.0 in an emulator
-  with a Plus or SE ROM would settle that. A test that separates the two:
-  draw two full-width 1-px horizontal lines 9 rows apart (art 10 rows tall).
-  Command-drag a marquee around them so it shrinks to exactly the art. Then use
-  Scale Selection… at 25%. The model predicts a 4-row result with only the
-  *top* line left: rows are merged as {0,1}, {2,3}, {4,5,6}, {7,8}, and row 9
-  is never read. Other cases where the model predicts a drop: 7 rows at 40%
-  and 20 rows at 25%. Scale Selection at 50% or more never hits this case,
-  because it rounds the inset down, so the output is always at least half the
-  height. For example, 21 rows at 50% gives 11 rows, and the model reads every
-  row. An emulator test at 50% kept the bottom line, as the model predicts.
+  dates from the 1990 changes, so on older ROMs the exact rows picked at
+  non-integral ratios may differ.
+
+### Emulator check
+
+Tested in [Infinite Mac](https://infinitemac.org/) running System 6.0.5
+(Finder 6.1.5, 8 MB) and MacPaint 2.0 (December 1987). Infinite Mac runs
+System 6.0.5 on a **Mac SE/30**, which uses the **Mac IIx ROM**, so this is
+Color QuickDraw. System 6.0.5 also bundles 32-bit QuickDraw.
+
+The test: draw two full-width 1-px horizontal lines 9 rows apart (art 10 rows
+tall). Command-drag a marquee around them so it shrinks to exactly the art,
+then use Scale Selection… at 25%.
+
+* **Model:** a 4-row result with only the *top* line. Rows are merged as
+  {0,1}, {2,3}, {4,5,6}, {7,8}, and row 9 is never read.
+* **Emulator:** the bottom line is gone. ✔ (Pinned as
+  `test_emulator_confirmed_bottom_row_drop`.)
+* At 50% the bottom line survives in both the emulator and the model. Scale
+  Selection rounds the inset down, so the output is always at least half the
+  height (21 rows → 11), and at those ratios the model reads every row.
+
+Other cases where the model predicts a dropped bottom row are 7 rows at 40% and
+20 rows at 25%.
+
+**Still open:** the original black-and-white QuickDraw. Infinite Mac runs
+System 6.0.2 on a **Mac SE** (SE ROM, Mini vMac), with the same Infinite HD
+disk. Repeating the 25% test there would show whether the pre-1990 ROM drops
+the row too.
+
 * `FixRatio` rounding is modelled as truncation. If a ROM rounds instead, edge
   columns at some ratios could shift by one pixel. The OR behaviour is the
   same either way.

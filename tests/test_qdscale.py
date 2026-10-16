@@ -180,6 +180,18 @@ class ScaleSelectionTests(unittest.TestCase):
         self.assertEqual(scale_selection_rect((600, 520, 700, 570), 150),
                          (569, 501, 719, 575))
 
+    def test_emulator_confirmed_bottom_row_drop(self):
+        # MacPaint 2.0 on an emulated SE/30 (Mac IIx ROM, System 6.0.5): two
+        # full-width lines on rows 0 and 9, marquee shrunk to fit, Scale
+        # Selection 25%. Only the top line survived.
+        bm = blank(40, 10)
+        bm[0] = [1] * 40
+        bm[9] = [1] * 40
+        top, left, bottom, right = scale_selection_rect((200, 200, 210, 240), 25)
+        self.assertEqual(bottom - top, 4)
+        out = stretch_bits(bm, right - left, bottom - top)
+        self.assertEqual([int(any(r)) for r in out], [1, 0, 0, 0])
+
     def test_too_big_raises(self):
         with self.assertRaises(ScaleTooBig):
             scale_selection_rect((0, 0, 400, 400), 200)
